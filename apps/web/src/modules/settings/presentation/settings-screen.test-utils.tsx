@@ -21,6 +21,7 @@ import { DEFAULT_SETTINGS, type AppSettings, type NotificationChannel } from "@/
 import type { ThemeMode } from "@/types/theme";
 import { BUILT_IN_ICON_PROVIDERS, type BuiltInIconProvider } from "@renewlet/shared/built-in-icons";
 import { SettingsScreen } from "./settings-screen";
+import type { SettingsSectionId } from "./settings-section-navigation";
 import { NotificationChannelConfigPanel } from "./notification-channel-config-panel";
 import type { UploadedAssetsManagerController } from "../application/use-uploaded-assets-manager";
 import type { SettingsAuthSecurityController } from "../application/use-auth-security-settings-controller";
@@ -222,9 +223,40 @@ vi.mock("@/contexts/CustomConfigContext", async () => {
 });
 
 vi.mock("./settings-advanced-sections-loader", async () => {
-  const module = await import("./settings-advanced-sections");
+  const [resourcesAi, budgetData, cloudCalendar, publicNotifications] = await Promise.all([
+    import("./settings-advanced-group-resources-ai"),
+    import("./settings-advanced-group-budget-data"),
+    import("./settings-advanced-group-cloud-calendar"),
+    import("./settings-advanced-group-public-notifications"),
+  ]);
+  const ResourcesAiGroup = resourcesAi.SettingsAdvancedResourcesAiGroup;
+  const BudgetDataGroup = budgetData.SettingsAdvancedBudgetDataGroup;
+  const CloudCalendarGroup = cloudCalendar.SettingsAdvancedCloudCalendarGroup;
+  const PublicNotificationsGroup = publicNotifications.SettingsAdvancedPublicNotificationsGroup;
   return {
-    DeferredSettingsAdvancedSections: module.SettingsAdvancedSections,
+    DeferredSettingsAdvancedSections: ({ controller, onReady }: {
+      controller: Parameters<typeof ResourcesAiGroup>[0]["controller"];
+      onReady: (sectionIds: readonly SettingsSectionId[]) => void;
+    }) => (
+      <>
+        <ResourcesAiGroup
+          controller={controller}
+          onReady={() => onReady(["settings-icon-sources", "settings-uploaded-icons", "settings-ai-recognition"])}
+        />
+        <BudgetDataGroup
+          controller={controller}
+          onReady={() => onReady(["settings-budget", "settings-data-config", "settings-exchange"])}
+        />
+        <CloudCalendarGroup
+          controller={controller}
+          onReady={() => onReady(["settings-cloud-backup", "settings-calendar-feed"])}
+        />
+        <PublicNotificationsGroup
+          controller={controller}
+          onReady={() => onReady(["settings-public-status", "settings-public-api", "settings-timezone", "settings-notifications"])}
+        />
+      </>
+    ),
     preloadSettingsAdvancedSections: vi.fn(),
   };
 });
@@ -413,6 +445,10 @@ export function createControllerState(overrides: {
   externalIntegrationsDisabled?: boolean;
   sensitiveAccountActionsDisabled?: boolean;
   sensitiveAccountActionsDemoDisabled?: boolean;
+  appStatusHasError?: boolean;
+  appStatusHasData?: boolean;
+  appStatusIsRefreshing?: boolean;
+  retryAppStatus?: () => Promise<unknown>;
   customConfig?: CustomConfig;
 } = {}) {
   const fn = vi.fn();
@@ -650,6 +686,10 @@ export function createControllerState(overrides: {
     externalIntegrationsDisabled: overrides.externalIntegrationsDisabled ?? false,
     sensitiveAccountActionsDisabled: overrides.sensitiveAccountActionsDisabled ?? false,
     sensitiveAccountActionsDemoDisabled: overrides.sensitiveAccountActionsDemoDisabled ?? false,
+    appStatusHasError: overrides.appStatusHasError ?? false,
+    appStatusHasData: overrides.appStatusHasData ?? true,
+    appStatusIsRefreshing: overrides.appStatusIsRefreshing ?? false,
+    retryAppStatus: overrides.retryAppStatus ?? vi.fn().mockResolvedValue(undefined),
   } satisfies SettingsFormController;
 }
 
@@ -694,7 +734,12 @@ export function createCalendarFeedControllerState(
 
 function RouteProbe() {
   const location = useLocation();
-  return <div data-testid="route-path">{location.pathname}</div>;
+  return (
+    <>
+      <div data-testid="route-path">{location.pathname}</div>
+      <div data-testid="route-hash">{location.hash}</div>
+    </>
+  );
 }
 
 export function renderSettingsScreen(initialEntries = ["/settings"]) {
